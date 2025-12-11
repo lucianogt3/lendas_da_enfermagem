@@ -1,61 +1,212 @@
+// services/database.ts
+import {
+  collection,
+  getDocs,
+  getDoc,
+  doc,
+  setDoc,
+  deleteDoc,
+} from "firebase/firestore";
+import { firestore } from "./firebase";
+import {
+  Sticker,
+  QuizQuestion,
+  UserProfile,
+  RANKS,
+  StorePack,
+  QuizTopic,
+} from "../types";
+import { INITIAL_TOPICS } from "../seedData";
 
-import { Sticker, QuizQuestion, Rarity, QuizTopic } from './types';
+// chave de sessão no localStorage (só pra guardar o email logado)
+const SESSION_KEY = "lendas_session_email";
 
-// --- CLEAN SLATE FOR PRODUCTION ---
+// Coleções do Firestore
+const COLL = {
+  STICKERS: "stickers",
+  QUESTIONS: "questions",
+  TOPICS: "topics",
+  PACKS: "packs",
+  USERS: "users",
+};
 
-export const INITIAL_TOPICS: QuizTopic[] = [
-  { id: 't1', name: 'Farmacologia', icon: '💊' },
-  { id: 't2', name: 'Anatomia e Fisiologia', icon: '🫀' },
-  { id: 't3', name: 'Ética e Legislação', icon: '⚖️' },
-  { id: 't4', name: 'Urgência e Emergência', icon: '🚑' },
-  { id: 't5', name: 'Saúde Pública', icon: '🌍' },
-  { id: 't6', name: 'Centro Cirúrgico', icon: '😷' },
-  { id: 't7', name: 'Humanização', icon: '🤝' },
-];
+// Pequeno helper pra mapear docs → objeto
+const mapDocs = <T>(snap: any): T[] =>
+  snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as T) }));
 
-export const INITIAL_QUESTIONS: QuizQuestion[] = [
-  {
-    id: 'welcome-q1',
-    topic: 'Humanização',
-    difficulty: 'Fácil',
-    question: 'Bem-vindo ao Lendas da Enfermagem! Qual é o principal objetivo deste app?',
-    options: [
-       'Aprender brincando e colecionar conquistas',
-       'Apenas passar o tempo',
-       'Decorar textos longos',
-       'Nenhuma das anteriores'
-    ],
-    correctIndex: 0,
-    explanation: 'O app une gamificação e ensino para tornar o aprendizado da enfermagem envolvente.'
+// Garante que os tópicos iniciais existem no Firestore
+const ensureTopicsSeed = async () => {
+  const snap = await getDocs(collection(firestore, COLL.TOPICS));
+  if (!snap.empty) return;
+
+  for (const topic of INITIAL_TOPICS) {
+    await setDoc(doc(firestore, COLL.TOPICS, topic.id), topic);
   }
-];
+};
 
-export const INITIAL_STICKERS: Sticker[] = [
-  {
-    id: '1',
-    name: 'Bem-vindo(a)!',
-    description: 'Sua primeira figurinha. O início da sua jornada lendária.',
-    imageUrl: 'https://cdn-icons-png.flaticon.com/512/3063/3063823.png', 
-    rarity: Rarity.COMMON,
-    category: 'Geral',
-    isAnimated: false
+export const db = {
+  // --- STICKERS ---
+
+  getStickers: async (): Promise<Sticker[]> => {
+    const snap = await getDocs(collection(firestore, COLL.STICKERS));
+    return mapDocs<Sticker>(snap);
   },
-  {
-    id: '2',
-    name: 'Batimentos Cardíacos',
-    description: 'Sinal vital essencial para a vida.',
-    imageUrl: 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbDNqZXZ4Zmd6a3Uxdnh6ZmR6a3Uxdnh6ZmR6a3Uxdnh6ZmR6a3UxdCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7TKSjRrfIPjeiVyM/giphy.gif',
-    rarity: Rarity.EPIC,
-    category: 'Anatomia e Fisiologia',
-    isAnimated: true
-  }
-];
 
-export const CURIOSITIES = [
-  "A sepse é a principal causa de morte nas UTIs não cardiológicas.",
-  "O tempo é cérebro: cada minuto em um AVC não tratado perde milhões de neurônios.",
-  "A higienização das mãos é a medida mais simples e eficaz contra IPCS.",
-  "Cicely Saunders fundou o movimento moderno de Cuidados Paliativos em 1967.",
-  "A humanização na UTI reduz o tempo de internação e melhora o pós-alta.",
-  "A Florence Nightingale reduziu a mortalidade de 42% para 2% na Guerra da Crimeia.",
-];
+  addSticker: async (sticker: Sticker): Promise<void> => {
+    // usa o id da figurinha como id do documento
+    await setDoc(doc(firestore, COLL.STICKERS, sticker.id), sticker);
+  },
+
+  updateSticker: async (sticker: Sticker): Promise<void> => {
+    await setDoc(doc(firestore, COLL.STICKERS, sticker.id), sticker, {
+      merge: true,
+    });
+  },
+
+  // --- QUESTIONS ---
+
+  getQuestions: async (): Promise<QuizQuestion[]> => {
+    const snap = await getDocs(collection(firestore, COLL.QUESTIONS));
+    return mapDocs<QuizQuestion>(snap);
+  },
+
+  addQuestion: async (q: QuizQuestion): Promise<void> => {
+    await setDoc(doc(firestore, COLL.QUESTIONS, q.id), q);
+  },
+
+  deleteQuestion: async (id: string): Promise<void> => {
+    await deleteDoc(doc(firestore, COLL.QUESTIONS, id));
+  },
+
+  // --- TOPICS ---
+
+  getTopics: async (): Promise<QuizTopic[]> => {
+    await ensureTopicsSeed();
+    const snap = await getDocs(collection(firestore, COLL.TOPICS));
+    return mapDocs<QuizTopic>(snap);
+  },
+
+  addTopic: async (topic: QuizTopic): Promise<void> => {
+    await setDoc(doc(firestore, COLL.TOPICS, topic.id), topic);
+  },
+
+  deleteTopic: async (id: string): Promise<void> => {
+    await deleteDoc(doc(firestore, COLL.TOPICS, id));
+  },
+
+  // --- STORE PACKS ---
+
+  getPacks: async (): Promise<StorePack[]> => {
+    const snap = await getDocs(collection(firestore, COLL.PACKS));
+    const packs = mapDocs<StorePack>(snap);
+
+    // se não tiver nenhum pacote ainda, você pode criar 1 default aqui em código:
+    if (packs.length === 0) {
+      const defaultPack: StorePack = {
+        id: "pack-starter",
+        name: "Pacote Inicial",
+        description: "Comece sua coleção aqui.",
+        price: 50,
+        stickersCount: 3,
+        legendaryChance: 5,
+        epicChance: 15,
+        rareChance: 40,
+        color: "bg-blue-500",
+      };
+      await setDoc(doc(firestore, COLL.PACKS, defaultPack.id), defaultPack);
+      return [defaultPack];
+    }
+
+    return packs;
+  },
+
+  addPack: async (pack: StorePack): Promise<void> => {
+    await setDoc(doc(firestore, COLL.PACKS, pack.id), pack);
+  },
+
+  // --- AUTH & USER DATA ---
+
+  login: async (email: string, password?: string): Promise<UserProfile | null> => {
+    const key = email.toLowerCase();
+    const ref = doc(firestore, COLL.USERS, key);
+    const snap = await getDoc(ref);
+
+    if (!snap.exists()) return null;
+
+    const user = snap.data() as UserProfile & { password?: string };
+
+    if (password && user.password && user.password !== password) {
+      return null;
+    }
+
+    if (!user.answeredQuestions) user.answeredQuestions = [];
+
+    // salva sessão local
+    localStorage.setItem(SESSION_KEY, key);
+
+    return user;
+  },
+
+  register: async (data: {
+    name: string;
+    email: string;
+    password?: string;
+    profession: string;
+    avatar: string;
+  }): Promise<UserProfile> => {
+    const key = data.email.toLowerCase();
+    const ref = doc(firestore, COLL.USERS, key);
+    const snap = await getDoc(ref);
+
+    if (snap.exists()) {
+      throw new Error("Email já cadastrado!");
+    }
+
+    const newUser: UserProfile = {
+      name: data.name,
+      email: data.email,
+      password: data.password,
+      profession: data.profession,
+      avatar: data.avatar,
+      level: 1,
+      xp: 0,
+      rankTitle: RANKS[0].title,
+      coins: 100,
+      collectedStickers: [],
+      answeredQuestions: [],
+    };
+
+    await setDoc(ref, newUser);
+    localStorage.setItem(SESSION_KEY, key);
+
+    return newUser;
+  },
+
+  getCurrentUser: async (): Promise<UserProfile | null> => {
+    const email = localStorage.getItem(SESSION_KEY);
+    if (!email) return null;
+
+    const ref = doc(firestore, COLL.USERS, email);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return null;
+
+    const user = snap.data() as UserProfile;
+    if (!user.answeredQuestions) user.answeredQuestions = [];
+
+    return user;
+  },
+
+  getAllUsers: async (): Promise<UserProfile[]> => {
+    const snap = await getDocs(collection(firestore, COLL.USERS));
+    return mapDocs<UserProfile>(snap);
+  },
+
+  updateUser: async (user: UserProfile): Promise<void> => {
+    const key = user.email.toLowerCase();
+    await setDoc(doc(firestore, COLL.USERS, key), user, { merge: true });
+  },
+
+  logout: async (): Promise<void> => {
+    localStorage.removeItem(SESSION_KEY);
+  },
+};
